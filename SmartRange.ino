@@ -1,14 +1,11 @@
-#include <Servo.h>                    // 서보모터 라이브러리
 #include <Wire.h>                     // i2C 통신을 위한 라이브러리
 #include <LiquidCrystal_I2C.h>        // LCD 2004 I2C용 라이브러리
 #include <Adafruit_MLX90614.h>        // 비접촉 온도센서 라이브러리
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);   //  0x3F or 0x27를 선택하여 주세요. 작동이 되지 않는 경우 0x27로 바꾸어주세요. 확인결과 0x3f가 작동하지 않을 수 있습니다.
-Servo servo;
 Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 
 //PIN Settings
-int pinServoMotor = 8;
 int pinJoystickX = 0;
 int pinJoystickY = 1;
 int pinJoystickPush = 6;
@@ -16,20 +13,16 @@ int pinBuzzer = 3;
 
 enum MainMenu
 {
-  MENU_MANUAL, MENU_EGG, MENU_CUPRAMEN, MENU_THREECOOK, MENU_MEAT, MENU_SERVO_SETTING, MENU_COUNT
+  MENU_MANUAL, MENU_EGG, MENU_CUPRAMEN, MENU_THREECOOK, MENU_MEAT, MENU_COUNT
 };
 char *menuNames[] = 
 {
-  "Manual", "Egg", "Cup Ramen", "Three Cook", "Meat", "Servo Settings"
+  "Manual", "Egg", "Cup Ramen", "Three Cook", "Meat"
 };
 
 enum SettingMenu
 {
-  SET_TEMP, SET_TIME, SET_LEVER, SETTING_MENU_COUNT
-};
-enum ServoSettingMenu
-{
-  SET_SERVO_LOW, SET_SERVO_OFF, SET_SERVO_ON, SERVO_SETTING_MENU_COUNT
+  SET_TEMP, SET_MIN, SET_SEC, SETTING_MENU_COUNT
 };
 
 enum JoystickState
@@ -41,36 +34,21 @@ char *joyNames[] =
   "None", "Left", "Right", "Up", "Down", "Click"
 };
 
-enum ServoControl
-{
-  SERVO_LOW, SERVO_OFF
-};
-char *servoControlNames[] = 
-{
-  "LOW", "OFF"
-};
-
 const int MODE_MENU = 1;
 const int MODE_SETTING = 2;
 const int MODE_RUNNING = 3;
-const int MODE_SERVO_SETTING = 4;
 
 int currentMode = MODE_MENU;    //현재 모드
 MainMenu currentMenu = MENU_MANUAL;  //현재 메뉴
 SettingMenu currentSettingMenu = SET_TEMP;   //현재 설정 메뉴
-ServoSettingMenu currentServoMenu = SET_SERVO_LOW; //현재 서보 설정 메뉴
 
-int incrementTemp = 10;     //온도 증감 변화량
+int incrementTemp = 5;     //온도 증감 변화량
 int incrementSeconds = 10;  //시간 초 증감 변화량
-int servoTurnOffAngle = 20; //가스불 끄는 각도
-int servoTurnLowAngle = 25; //가스불 약불 각도
-int servoTurnOnAngle = 70;  //가스불 켜진 각도
 int secondsTimeout = 300;   //모든 모드의 제한 시간(초)
 
 bool timecountStarted;
 int countStartTemp = 70;    //카운트 시작 온도
 unsigned int secondsToEnd = 180;     //서보모터 동작까지 시간
-ServoControl endServoControl = SERVO_OFF;     //카운트 후 서보모터 동작 각도
 
 unsigned long runningStartMillis;
 unsigned long timeCountEndMillis;
@@ -218,34 +196,9 @@ bool handleJoystick(JoystickState joy)
     {      
       case JOY_LEFT:
         currentMode = MODE_SETTING;
+        return true;
       case JOY_CLICK:
         stopRunning(false);
-        return true;
-      default:
-        return false;
-    }
-  }
-  else if (currentMode == MODE_SERVO_SETTING)
-  {
-    bool result;
-    switch (joy)
-    {
-      case JOY_LEFT:        
-         result = tryMoveToPreServoSetting();
-        if (result == false)
-        {
-          currentMode = MODE_MENU;
-          result = true;
-        }
-        return result;
-      case JOY_RIGHT:
-        return tryMoveToNextServoSetting();
-      case JOY_UP:
-      case JOY_DOWN:
-        changeServoAngle(joy);
-        return true;
-      case JOY_CLICK:
-        changeServoSetting();
         return true;
       default:
         return false;
@@ -296,28 +249,29 @@ void refreshLCD()
     int temp = getObjectTemperature();
     lcd.print("Current:" + intToFixedLengthString(temp, 3, " ") + (char)223 + "C");    
 
+    int startIndex = 0;
     lcd.setCursor(1,1);
     lcd.print(intToFixedLengthString(countStartTemp, 3, " ") + (char)223 + "C");
-    lcd.print(" ");
+    lcd.print("  ");
     lcd.print(intToFixedLengthString((int)(secondsToEnd / 60.0), 2, "0"));
-    lcd.print(":");
+    lcd.print("M ");
     lcd.print(intToFixedLengthString((int)(secondsToEnd % 60), 2, "0"));
-    lcd.print(" ");
-    lcd.print(servoControlNames[endServoControl]);    
+    lcd.print("S");
 
     if (currentSettingMenu == SET_TEMP)
     {
-      lcd.setCursor(0,1);
+      lcd.setCursor(startIndex,1);
     }
-    else if (currentSettingMenu == SET_TIME)
+    else if (currentSettingMenu == SET_MIN)
     {
-      lcd.setCursor(6,1);
+      lcd.setCursor(startIndex + 7,1);
     }        
-    else if (currentSettingMenu == SET_LEVER)
+    else if (currentSettingMenu == SET_SEC)
     {
-      lcd.setCursor(12,1);
+      lcd.setCursor(startIndex + 11,1);
     }        
-    lcd.write(byte(0));
+    lcd.write(byte(0));    
+
     preSettingRefreshMillis = millis();
   }
   else if (currentMode == MODE_RUNNING)
@@ -335,29 +289,6 @@ void refreshLCD()
     lcd.print("M");
     lcd.print(intToFixedLengthString((int)(remainingSeconds % 60), 2, "0"));
     lcd.print("S");
-  }
-  else if (currentMode == MODE_SERVO_SETTING)
-  {
-    
-    lcd.clear();
-    lcd.setCursor(0,0);
-    servo.attach(pinServoMotor);
-    lcd.print("Servo Read:" + intToFixedLengthString(servo.read(), 3, " "));
-    lcd.setCursor(0,1);
-    lcd.write(byte(0));
-    if (currentServoMenu == SET_SERVO_LOW)
-    {
-      lcd.print("Low Angle:" + intToFixedLengthString(servoTurnLowAngle, 3, " "));
-    }
-    else if (currentServoMenu == SET_SERVO_OFF)
-    {
-      lcd.print("Off Angle:" + intToFixedLengthString(servoTurnOffAngle, 3, " "));
-    }
-    else if (currentServoMenu == SET_SERVO_ON)
-    {
-      lcd.print("On Angle:" + intToFixedLengthString(servoTurnOnAngle, 3, " "));
-    }
-    servo.detach();
   }
 }
 void handleSetting()
@@ -377,13 +308,11 @@ void startRunning()
   preHandleRunningMillis = runningStartMillis - intervalRunningHandle;
   timecountStarted = false;
   remainingSeconds = secondsToEnd;
-  turnLeverOn();
 }
 void stopRunning(bool complete)
 {
   if (complete)
   {    
-    controlEndLever();
     playCompleteSound();
   }  
   currentMode = MODE_MENU;
@@ -455,80 +384,35 @@ String secondsToTime(int seconds)
   String secondText = intToFixedLengthString((int)(seconds % 60), 2, "0");
   return hourText + "M " + secondText;
 }
-void lcdShowCompleteMessage()
-{
-  
-}
-
-void turnLever(int targetAngle)
-{
-  if (targetAngle < 0 || targetAngle > 180)
-  {
-    return;
-  }
-  servo.attach(pinServoMotor);
-  int currentAngle = servo.read();
-  while (currentAngle != targetAngle)
-  {
-    if (currentAngle > targetAngle)
-    {
-      currentAngle--;
-    }
-    else if(currentAngle < targetAngle)
-    {
-      currentAngle++;
-    }
-    servo.write(currentAngle);
-    delay(50);
-  }
-  servo.detach();  
-}
-void turnLeverOff()
-{
-  turnLever(servoTurnOffAngle);  
-}
-void turnLeverLow()
-{
-  turnLever(servoTurnLowAngle);  
-}
-void turnLeverOn()
-{
-  turnLever(servoTurnOnAngle);
-}
 
 void enterMenu(int menu)
 {
   if (menu == MENU_MANUAL)
   {
-    startSetting(0, 0, SERVO_OFF);
+    startSetting(0, 0);
   }
   else if (menu == MENU_EGG)
   {
-    startSetting(70, 6 * 60, SERVO_OFF);
+    startSetting(60, 7 * 60);
   }
   else if (menu == MENU_CUPRAMEN)
   {
-    startSetting(70, 0, SERVO_OFF);
+    startSetting(50, 0);
   }
   else if (menu == MENU_THREECOOK)
   {
-    startSetting(70, 3 * 60, SERVO_OFF);
+    startSetting(60, 3 * 60);
   }
   else if (menu == MENU_MEAT)
   {
-    startSetting(170, 0, SERVO_LOW);
-  }
-  else if (menu == MENU_SERVO_SETTING)
-  {
-    currentMode = MODE_SERVO_SETTING;
+    startSetting(170, 0);
   }
 }
 
-void startSetting(int temp, int seconds, ServoControl servo)
+void startSetting(int temp, int seconds)
 {
   countStartTemp = temp;
   secondsToEnd = seconds;
-  endServoControl = servo;
   currentMode = MODE_SETTING;
   currentSettingMenu = 0;  
 }
@@ -554,7 +438,29 @@ void changeSetting(int currentSettingMenu, int joy)
       countStartTemp = 250;
     }
   }
-  else if (currentSettingMenu == SET_TIME)
+  else if (currentSettingMenu == SET_MIN)
+  {
+    if (joy == JOY_UP)
+    {
+      secondsToEnd += 60;
+    }
+    else if (joy == JOY_DOWN)
+    {
+      if (secondsToEnd >= 60)
+      {
+        secondsToEnd -= 60;  
+      }      
+    }
+    if (secondsToEnd < 0)
+    {
+      secondsToEnd = 0;
+    }
+    else if (secondsToEnd > 60 * 60)
+    {
+      secondsToEnd = 60 * 60;
+    }
+  }
+  else if (currentSettingMenu == SET_SEC)
   {
     if (joy == JOY_UP)
     {
@@ -572,20 +478,6 @@ void changeSetting(int currentSettingMenu, int joy)
     else if (secondsToEnd > 60 * 60)
     {
       secondsToEnd = 60 * 60;
-    }
-  }
-  else if (currentSettingMenu == SET_LEVER)
-  {
-    if (joy == JOY_UP || joy == JOY_DOWN)
-    {
-      if (endServoControl == SERVO_LOW)
-      {
-        endServoControl = SERVO_OFF;
-      }
-      else if(endServoControl == SERVO_OFF)
-      {
-        endServoControl = SERVO_LOW;
-      }
     }
   }
 }
@@ -630,93 +522,6 @@ bool tryMoveToNextSetting()
   }
   return false;
 }
-
-bool tryMoveToPreServoSetting()
-{
-  int preSetting = currentServoMenu - 1;
-  if (preSetting > -1)
-  {
-    changeServoSettingMode(preSetting);
-    return true;
-  }
-  return false;
-}
-bool tryMoveToNextServoSetting()
-{
-  int nextSetting = currentServoMenu + 1;
-  if (nextSetting < SERVO_SETTING_MENU_COUNT)
-  {
-    changeServoSettingMode(nextSetting);    
-    return true;
-  }
-  return false;
-}
-void changeServoSettingMode(int newServoMenu)
-{
-  if (currentServoMenu == newServoMenu)
-  {
-    return;
-  }
-
-  currentServoMenu = newServoMenu;
-  
-  if (newServoMenu == SET_SERVO_LOW)
-  {
-    turnLever(servoTurnLowAngle);
-  }
-  else if (newServoMenu == SET_SERVO_OFF)
-  {
-    turnLever(servoTurnOffAngle);
-  }
-  else if (newServoMenu == SET_SERVO_ON)
-  {
-    turnLever(servoTurnOnAngle);
-  }
-}
-
-void changeServoAngle(int joy)
-{
-  int currentAngle;
-  if (joy == JOY_UP)
-  {
-    currentAngle = servo.read();  
-    currentAngle++;
-    turnLever(currentAngle);
-  }
-  else if(joy == JOY_DOWN)
-  {
-    currentAngle = servo.read();  
-    currentAngle--;
-    turnLever(currentAngle);
-  }
-}
-void changeServoSetting()
-{
-  if (currentServoMenu == SET_SERVO_LOW)
-  {
-    servoTurnLowAngle = servo.read();
-  }
-  else if (currentServoMenu == SET_SERVO_OFF)
-  {
-    servoTurnOffAngle = servo.read();
-  }
-  else if (currentServoMenu == SET_SERVO_ON)
-  {
-    servoTurnOnAngle = servo.read();
-  }
-}
-void controlEndLever()
-{
-  if (endServoControl == SERVO_LOW)
-  {
-    turnLeverLow();
-  }
-  else if(endServoControl == SERVO_OFF)
-  {
-    turnLeverOff();
-  }
-}
-
 
 //for sound
 #define NOTE_E6  1319
