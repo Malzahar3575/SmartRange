@@ -13,11 +13,11 @@ int pinBuzzer = 3;
 
 enum MainMenu
 {
-  MENU_MANUAL, MENU_EGG, MENU_CUPRAMEN, MENU_THREECOOK, MENU_MEAT, MENU_COUNT
+  MENU_MANUAL, MENU_EGG, MENU_CUPRAMEN, MENU_THREECOOK, MENU_COUNT
 };
 char *menuNames[] = 
 {
-  "Manual", "Egg", "Cup Ramen", "Three Cook", "Meat"
+  "Manual", "Egg", "Cup Ramen", "Three Cook"
 };
 
 enum SettingMenu
@@ -402,11 +402,7 @@ void enterMenu(int menu)
   else if (menu == MENU_THREECOOK)
   {
     startSetting(60, 3 * 60);
-  }
-  else if (menu == MENU_MEAT)
-  {
-    startSetting(170, 0);
-  }
+  }  
 }
 
 void startSetting(int temp, int seconds)
